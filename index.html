@@ -15,11 +15,15 @@
   .msg{padding:10px 14px;border-radius:14px;max-width:85%;line-height:1.45;font-size:17px}
   .her{align-self:flex-start;background:#2e2a24}
   .me{align-self:flex-end;background:#3d4a5c}
-  .controls{display:flex;justify-content:center;padding:10px 0 20px}
+  .thinking{font-style:italic;opacity:.6}
+  .controls{display:flex;justify-content:center;gap:10px;padding:10px 0 6px}
   button{font-size:18px;padding:14px 34px;border-radius:999px;border:0;background:#c8a24a;color:#1a1712;cursor:pointer}
   button.listening{background:#d45f4b}
   button:disabled{opacity:.5}
-  .hint{text-align:center;font-size:13px;opacity:.55;margin-top:-12px;padding-bottom:14px}
+  .typerow{display:flex;gap:8px;padding:6px 0 16px}
+  .typerow input{flex:1;font-size:16px;padding:12px 16px;border-radius:999px;border:1px solid #4a443a;background:#1e1a16;color:#f2ede4;font-family:inherit}
+  .typerow button{padding:12px 22px;font-size:16px}
+  .hint{text-align:center;font-size:13px;opacity:.55;margin:0;padding-bottom:14px}
 </style>
 </head>
 <body>
@@ -28,25 +32,48 @@
   <div class="frame"><iframe src="https://blocks.glass/keepsake3d/f85f04fb-5866-4ac0-9312-4e044835fe2e" allow="autoplay" loading="lazy"></iframe></div>
   <div class="log" id="log"></div>
   <div class="controls"><button id="talk">Talk to her</button></div>
+  <div class="typerow"><input id="typed" type="text" placeholder="...or type to her here" autocomplete="off"><button id="send">Send</button></div>
   <div class="hint">Tap the button, speak, then tap again when you finish.</div>
 </div>
 <script>
 const log = document.getElementById('log');
 const btn = document.getElementById('talk');
+const typed = document.getElementById('typed');
+const sendBtn = document.getElementById('send');
 const history = [];
-let rec = null, listening = false;
+let rec = null, listening = false, actx = null;
 
 function add(role, text){
   const d = document.createElement('div');
   d.className = 'msg ' + (role === 'user' ? 'me' : 'her');
   d.textContent = text;
   log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+
+// iOS Safari only allows sound from an AudioContext that was created/resumed inside a tap.
+function ensureAudio(){
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (actx && actx.state === 'suspended') actx.resume();
+}
+
+async function speak(blob, done){
+  try {
+    ensureAudio();
+    if (!actx) return done();
+    const ab = await actx.decodeAudioData(await blob.arrayBuffer());
+    const src = actx.createBufferSource();
+    src.buffer = ab; src.connect(actx.destination);
+    src.onended = done;
+    src.start();
+  } catch (e) { done(); }
 }
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) { btn.disabled = true; document.querySelector('.hint').textContent = 'This browser does not support speech recognition - try Chrome.'; }
+if (!SR) { btn.disabled = true; document.querySelector('.hint').textContent = 'Speech recognition is not available in this browser - typing below works everywhere.'; }
 
 btn.onclick = () => {
+  ensureAudio();
   if (listening) { rec && rec.stop(); return; }
   rec = new SR();
   rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1;
@@ -59,24 +86,32 @@ btn.onclick = () => {
   function stopUI(){ listening = false; btn.classList.remove('listening'); btn.textContent = 'Talk to her'; }
 };
 
+sendBtn.onclick = () => { ensureAudio(); const t = typed.value.trim(); if (t) { typed.value = ''; converse(t); } };
+typed.addEventListener('keydown', e => { if (e.key === 'Enter') sendBtn.onclick(); });
+
 async function converse(text){
   add('user', text);
   history.push({ role: 'user', text });
-  btn.disabled = true;
+  btn.disabled = true; sendBtn.disabled = true;
+  const thinking = add('her', '...');
+  thinking.classList.add('thinking');
   try {
     const cr = await fetch('api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ history }) });
     const cj = await cr.json();
     const reply = (cj.text || '').trim() || 'I am here, honey.';
+    thinking.remove();
     add('her', reply);
     history.push({ role: 'model', text: reply });
     const tr = await fetch('api/tts', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ text: reply }) });
     if (tr.ok) {
       const blob = await tr.blob();
-      const a = new Audio(URL.createObjectURL(blob));
-      a.onended = () => { btn.disabled = false; };
-      await a.play().catch(() => { btn.disabled = false; });
-    } else btn.disabled = false;
-  } catch (e) { btn.disabled = false; }
+      await speak(blob, () => { btn.disabled = false; sendBtn.disabled = false; });
+    } else { btn.disabled = false; sendBtn.disabled = false; }
+  } catch (e) {
+    thinking.remove();
+    add('her', 'Give me just a moment, honey - try me again.');
+    btn.disabled = false; sendBtn.disabled = false;
+  }
 }
 
 add('her', 'Hi honey. Tap the button and talk to me.');
