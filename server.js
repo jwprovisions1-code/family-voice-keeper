@@ -31,9 +31,10 @@ app.post('/api/chat', async (req, res) => {
       body: JSON.stringify({ systemInstruction: { parts: [{ text: PERSONA }] }, contents, generationConfig: { maxOutputTokens: 120, temperature: 0.7 } })
     });
     const j = await r.json();
+    if (!r.ok) return res.status(502).json({ error: 'gemini ' + r.status, detail: JSON.stringify(j).slice(0, 300) });
     const text = j.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-    res.json({ text: text.trim() });
-  } catch (e) { res.status(500).json({ error: 'chat failed' }); }
+    res.json({ text: text.trim(), debug: text ? undefined : JSON.stringify(j).slice(0, 300) });
+  } catch (e) { res.status(500).json({ error: 'chat failed', detail: String(e).slice(0, 200) }); }
 });
 
 app.post('/api/tts', async (req, res) => {
