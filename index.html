@@ -36,6 +36,7 @@
   <div class="hint">Tap the button, speak, then tap again when you finish.</div>
 </div>
 <script>
+const ACCESS_TOKEN = "__ACCESS_TOKEN__";
 const log = document.getElementById('log');
 const btn = document.getElementById('talk');
 const typed = document.getElementById('typed');
@@ -96,13 +97,13 @@ async function converse(text){
   const thinking = add('her', '...');
   thinking.classList.add('thinking');
   try {
-    const cr = await fetch('api/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ history }) });
+    const cr = await fetch('api/chat', { method: 'POST', headers: {'Content-Type':'application/json','x-access-token':ACCESS_TOKEN}, body: JSON.stringify({ history }) });
     const cj = await cr.json();
     const reply = (cj.text || '').trim() || 'I am here, honey.';
     thinking.remove();
     add('her', reply);
     history.push({ role: 'model', text: reply });
-    const tr = await fetch('api/tts', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ text: reply }) });
+    const tr = await fetch('api/tts', { method: 'POST', headers: {'Content-Type':'application/json','x-access-token':ACCESS_TOKEN}, body: JSON.stringify({ text: reply }) });
     if (tr.ok) {
       const blob = await tr.blob();
       await speak(blob, () => { btn.disabled = false; sendBtn.disabled = false; });
@@ -118,3 +119,4 @@ add('her', 'Hi honey. Tap the button and talk to me.');
 </script>
 </body>
 </html>
+
