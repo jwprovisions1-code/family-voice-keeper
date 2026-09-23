@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,12 +13,27 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const PERSONA = process.env.PERSONA_PROMPT || 'You are a kind elderly mother. Keep answers short, warm and simple.';
 const PAGE_PATH = (process.env.PAGE_PATH || 'visit').replace(/^\/+|\/+$/g, '');
+// SEC 2026-09-23: API access token (Render env ACCESS_TOKEN). Fail closed when unset.
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN || '';
+const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const hits = new Map();
+function guard(req, res, next) {
+  if (!ACCESS_TOKEN || req.get('x-access-token') !== ACCESS_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  const now = Date.now(), win = 60000, max = 40;
+  const arr = (hits.get(ip) || []).filter(t => now - t < win);
+  if (arr.length >= max) return res.status(429).json({ error: 'slow down' });
+  arr.push(now); hits.set(ip, arr);
+  next();
+}
+app.use('/api', guard);
 
 app.get('/healthz', (req, res) => res.send('ok'));
 
 app.get('/' + PAGE_PATH, (req, res) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(INDEX_HTML.replace('__ACCESS_TOKEN__', ACCESS_TOKEN));
 });
 app.get('/', (req, res) => res.status(404).send('not found'));
 
@@ -54,3 +70,4 @@ app.post('/api/tts', async (req, res) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log('listening on ' + port));
+
