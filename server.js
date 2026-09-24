@@ -18,8 +18,12 @@ const ACCESS_TOKEN = process.env.ACCESS_TOKEN || '';
 const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 const hits = new Map();
 function guard(req, res, next) {
-  if (!ACCESS_TOKEN || req.get('x-access-token') !== ACCESS_TOKEN) return res.status(401).json({ error: 'unauthorized' });
   const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  if (!ACCESS_TOKEN || req.get('x-access-token') !== ACCESS_TOKEN) {
+    // SEC 2026-09-24: log failed access (time, method, path, IP). Never log the token value.
+    console.warn('[auth-401] ' + JSON.stringify({ ts: new Date().toISOString(), method: req.method, path: req.baseUrl + req.path, ip: ip, token_present: !!req.get('x-access-token') }));
+    return res.status(401).json({ error: 'unauthorized' });
+  }
   const now = Date.now(), win = 60000, max = 40;
   const arr = (hits.get(ip) || []).filter(t => now - t < win);
   if (arr.length >= max) return res.status(429).json({ error: 'slow down' });
